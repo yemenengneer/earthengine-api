@@ -1,0 +1,83 @@
+// Google Earth Engine script to analyze gem potential including agate.  
+
+// Define the region of interest (ROI) - يمكن تعديل المنطقة الجغرافية حسب الحاجة  
+var roi = ee.Geometry.Rectangle([34.0, 31.0, 36.0, 33.5]); // مثال منطقة في مصر  
+
+// 1. **جلب البيانات المطلوبة**  
+
+/// Geological Map (بيانات الخرائط الجيولوجية)  
+var geologicalMap = ee.FeatureCollection("USGS/GEO_LOGICAL_MAP").filterBounds(roi);  
+
+// **البنية الجيولوجية (Tectonic Features)**  
+var tectonicFeatures = ee.FeatureCollection("users/your_username/tectonic_features") // استخدم بياناتك التي تم تحميلها  
+
+// **Water Data**  
+var waterData = ee.ImageCollection("NASA/FLDAS/NOAA/GODAE/").mean().clip(roi); // بيانات المياه  
+
+// **Erosion Data**  
+var erosionData = ee.Image("USGS/EROS/erosion_data").clip(roi); // بيانات التعرية  
+
+// **Land Cover Data**  
+var landCover = ee.Image("ESA/WorldCover/2020").clip(roi); // بيانات استخدام الأرض  
+
+// 2. **تحليل البيانات باستخدام الأوزان**  
+
+var geologicalWeight = 0.35;  
+var tectonicWeight = 0.25;  
+var waterWeight = 0.15;  
+var erosionWeight = 0.15;  
+var landCoverWeight = 0.05;  
+
+// 3. **حساب الدرجات**  
+var geologyScore = geologicalMap.size().multiply(geologicalWeight); // عدد المعالم كمقياس  
+var tectonicScore = tectonicFeatures.size().multiply(tectonicWeight); // عدد المعالم البنائية  
+var waterScore = waterData.reduceRegion({  
+  reducer: ee.Reducer.mean(),  
+  geometry: roi,  
+  scale: 30,  
+}).get('precipitation').multiply(waterWeight); // حساب الوسط للمياه  
+
+var erosionScore = erosionData.reduceRegion({  
+  reducer: ee.Reducer.mean(),  
+  geometry: roi,  
+  scale: 30,  
+}).get('erosion').multiply(erosionWeight); // حساب الوسط للتعرية  
+
+var landCoverScore = landCover.reduceRegion({  
+  reducer: ee.Reducer.mean(),  
+  geometry: roi,  
+  scale: 30,  
+}).get('water').multiply(landCoverWeight); // استخدام تغطية الأرض  
+
+// 4. **حساب إجمالي الدرجة**  
+var totalScore = ee.Number(geologyScore)  
+  .add(ee.Number(tectonicScore))  
+  .add(ee.Number(waterScore))  
+  .add(ee.Number(erosionScore))  
+  .add(ee.Number(landCoverScore));  
+
+// 5. **تطبيق عتبة لتحديد المواقع المحتملة**  
+var threshold = 0.5; // حد الاختيار، يمكنك تعديله حسب الحاجة  
+var potentialAgate = totalScore.gt(threshold);  
+
+// 6. **إنشاء Shapefile للأماكن المقترحة**  
+var agateLocations = geologicalMap.filter(potentialAgate);  
+// ملاحظة: هذا يحتاج إلى تعديل بناءً على كيفية تحديد المواقع المحتملة.  
+
+Export.table.toDrive({  
+  collection: agateLocations,  
+  description: 'AgatePotentialLocations',  
+  fileFormat: 'SHP',  
+  folder: 'GEE_Folder' // اسم المجلد المراد حفظ الملف فيه  
+});  
+
+// عرض النتائج  
+Map.centerObject(roi, 8);  
+Map.addLayer(geologicalMap, {color: 'red'}, 'Geological Map');  
+Map.addLayer(tectonicFeatures, {color: 'blue'}, 'Tectonic Features');  
+Map.addLayer(waterData, {palette: ['blue', 'green']}, 'Water Data');  
+Map.addLayer(erosionData, {palette: ['red', 'yellow']}, 'Erosion Data');  
+Map.addLayer(landCover, {min: 0, max: 10, palette: ['green', 'yellow', 'orange', 'red']}, 'Land Cover');  
+
+// بسط الكود  
+print('Total Score:', totalScore);  
